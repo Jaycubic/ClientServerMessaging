@@ -14,6 +14,10 @@
 #   2. creates the account (default CSIT203), sets its password
 #   3. makes it a plain user: no sudo, no admin groups, private home (0700),
 #      umask 077, process / login limits, no SSH port-forwarding or tunnelling
+#      and hides every other folder from it: /opt/*, /srv/*, /mnt/*, /media/*,
+#      /var/www/* and the other users' homes get an ACL "deny" for this account
+#      only (other users and services are unaffected), and /opt, /srv, /mnt,
+#      /media become traverse-only so their contents are not even listed
 #   4. clones this repo into the user's home, builds it and runs the full test
 #      suite *as that user* to prove the environment works
 #   5. verifies the restrictions (cannot sudo, cannot apt install, cannot write
@@ -111,6 +115,31 @@ $CSIT_USER  hard  core       0
 EOF
 chmod 644 /etc/security/limits.d/90-csit203.conf
 
+# 3f. hide everything that is not the project (ACL deny for THIS user only;
+#     other users and services are unaffected). Needs the 'acl' tools.
+if command -v setfacl >/dev/null 2>&1; then
+    hidden=0
+    for d in /opt/*/ /srv/*/ /mnt/*/ /media/*/ /var/www/*/ /home/*/; do
+        d="${d%/}"
+        [[ -d "$d" && ! -L "$d" ]] || continue
+        [[ "$d" -ef "$HOME_DIR" ]] && continue          # never hide its own home
+        if setfacl -m "u:${CSIT_USER}:---" "$d" 2>/dev/null; then hidden=$((hidden + 1)); fi
+    done
+    for d in /opt /srv /mnt /media; do                  # traverse-only: names not listed,
+        [[ -d "$d" ]] || continue                       # and new sub-folders start hidden
+        setfacl -m "u:${CSIT_USER}:--x" "$d" 2>/dev/null || true
+        setfacl -d -m "u:${CSIT_USER}:---" "$d" 2>/dev/null || true
+    done
+    setfacl -m "u:${CSIT_USER}:--x" /home 2>/dev/null || true   # cannot list other users' names
+    echo "  hidden from $CSIT_USER: $hidden folder(s) under /opt /srv /mnt /media /var/www /home"
+else
+    warn "setfacl not found (apt install acl): other folders were NOT hidden from $CSIT_USER"
+fi
+
+# 3g. no login banner (it lists this server's open ports / firewall status)
+: > "$HOME_DIR/.hushlogin"
+chown "$CSIT_USER:$CSIT_USER" "$HOME_DIR/.hushlogin"
+
 # 3e. SSH: shell access only - no port forwarding / tunnels / agent / X11
 SSHD_DROPIN=/etc/ssh/sshd_config.d/60-csit203.conf
 if [[ -d /etc/ssh/sshd_config.d ]] && grep -Eq '^\s*Include\s+/etc/ssh/sshd_config.d' /etc/ssh/sshd_config; then
@@ -194,7 +223,8 @@ check "cannot write /etc"                       deny  "touch /etc/csit203_probe"
 check "cannot write /usr/local"                 deny  "touch /usr/local/csit203_probe"
 check "cannot write /opt"                       deny  "touch /opt/csit203_probe"
 check "cannot read /etc/shadow"                 deny  "cat /etc/shadow"
-check "cannot enter other users' homes"         deny  "for d in /home/*; do [ \"\$d\" = \"$HOME_DIR\" ] && continue; ls \"\$d\" && exit 0; done; exit 1"
+check "cannot list /opt, /srv, /mnt, /media"      deny  "for d in /opt /srv /mnt /media; do [ -d \$d ] && ls \$d >/dev/null 2>&1 && exit 0; done; exit 1"
+check "cannot enter any folder under /opt /srv /home" deny "for d in /opt/*/ /srv/*/ /home/*/; do [ \"\${d%/}\" = \"$HOME_DIR\" ] && continue; [ -d \"\$d\" ] && ls \"\$d\" >/dev/null 2>&1 && exit 0; done; exit 1"
 check "can create files and folders in home"    allow "mkdir -p ~/probe/a/b && echo x > ~/probe/a/b/f && rm -rf ~/probe"
 check "can compile C with pthreads"             allow "cd \$(mktemp -d) && printf '#include <pthread.h>\nint main(){return 0;}' > t.c && gcc -pthread t.c -o t && ./t"
 check "home is private (mode 700)"              allow "[ \"\$(stat -c %a ~)\" = 700 ]"
