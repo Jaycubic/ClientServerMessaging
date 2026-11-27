@@ -6,20 +6,26 @@ LDFLAGS += -pthread $(SAN)
 
 BUILD   := build
 LIB_SRC := src/net.c src/session.c src/log.c src/users.c src/commands.c \
-           src/db_stub.c src/client_handler.c
+           src/db_file.c src/client_handler.c
 LIB_OBJ := $(LIB_SRC:src/%.c=$(BUILD)/%.o)
 
-UNIT_TESTS := $(BUILD)/test_net $(BUILD)/test_session $(BUILD)/test_commands
+UNIT_TESTS := $(BUILD)/test_cli $(BUILD)/test_db $(BUILD)/test_net $(BUILD)/test_session $(BUILD)/test_commands
 
 .PHONY: all test unit integration tsan asan clean
 
-all: $(BUILD)/server
+all: $(BUILD)/server $(BUILD)/client
 
 $(BUILD)/%.o: src/%.c $(wildcard src/*.h) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/server: src/server.c $(LIB_OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(BUILD)/client: client/client.c client/cli.c $(BUILD)/net.o $(wildcard client/*.h) | $(BUILD)
+	$(CC) $(CFLAGS) -Iclient client/client.c client/cli.c $(BUILD)/net.o -o $@ $(LDFLAGS)
+
+$(BUILD)/test_cli: tests/test_cli.c client/cli.c $(wildcard tests/*.h client/*.h) | $(BUILD)
+	$(CC) $(CFLAGS) -Itests -Iclient tests/test_cli.c client/cli.c -o $@ $(LDFLAGS)
 
 $(BUILD)/test_%: tests/test_%.c $(LIB_OBJ) $(wildcard tests/*.h)
 	$(CC) $(CFLAGS) -Itests $< $(LIB_OBJ) -o $@ $(LDFLAGS)
@@ -30,8 +36,9 @@ $(BUILD):
 unit: $(UNIT_TESTS)
 	@for t in $(UNIT_TESTS); do echo "== $$t"; $$t || exit 1; done
 
-integration: $(BUILD)/server
+integration: all
 	python3 tests/integration.py -v
+	python3 tests/e2e_client.py -v
 
 test: unit integration
 

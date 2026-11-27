@@ -6,6 +6,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -17,9 +18,18 @@ MAX_CLIENTS = 64
 
 
 class Server:
-    def __init__(self):
+    """Runs build/server on an ephemeral port with its own private data file
+    (so tests never see each other's messages). Pass data= to reuse a file
+    across restarts."""
+
+    def __init__(self, data=None):
+        self._tmp = None
+        if data is None:
+            self._tmp = tempfile.TemporaryDirectory()
+            data = os.path.join(self._tmp.name, "messages.dat")
+        self.data = data
         self.proc = subprocess.Popen(
-            [SERVER, "-p", "0", "-u", USERS], cwd=ROOT,
+            [SERVER, "-p", "0", "-u", USERS, "-d", data], cwd=ROOT,
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, bufsize=1)
         self.log = []
@@ -38,6 +48,9 @@ class Server:
         self._drainer.join(3)
         if not self.proc.stdout.closed:
             self.proc.stdout.close()
+        if self._tmp:
+            self._tmp.cleanup()
+            self._tmp = None
 
     def stop(self, sig=signal.SIGINT, timeout=8):
         if self.proc.poll() is None:

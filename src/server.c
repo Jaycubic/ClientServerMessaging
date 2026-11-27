@@ -1,6 +1,6 @@
 /* server.c - entry point: accept loop, thread-per-client, graceful shutdown.
  *
- * Usage: server [-p port] [-u users_file]
+ * Usage: server [-p port] [-u users_file] [-d data_file]
  *
  * Shutdown: SIGINT/SIGTERM (Ctrl+C) or typing "shutdown" on the server console.
  * The signal handler only writes a byte to a self-pipe (async-signal-safe);
@@ -41,7 +41,7 @@ static void on_signal(int sig)
 
 static void usage(const char *prog)
 {
-    fprintf(stderr, "usage: %s [-p port] [-u users_file]\n", prog);
+    fprintf(stderr, "usage: %s [-p port] [-u users_file] [-d data_file]\n", prog);
 }
 
 /* Read one console line. Returns 1 if the operator asked to shut down,
@@ -70,12 +70,14 @@ int main(int argc, char **argv)
 {
     int port = DEFAULT_PORT;
     const char *users_file = "users.txt";
+    const char *data_file = "messages.dat";
 
     int opt;
-    while ((opt = getopt(argc, argv, "p:u:h")) != -1) {
+    while ((opt = getopt(argc, argv, "p:u:d:h")) != -1) {
         switch (opt) {
         case 'p': port = atoi(optarg); break;
         case 'u': users_file = optarg; break;
+        case 'd': data_file = optarg; break;
         default:  usage(argv[0]); return 2;
         }
     }
@@ -89,8 +91,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot read user list '%s': %s\n", users_file, strerror(errno));
         return 1;
     }
-    if (db_init("messages.db") != 0) {
-        fprintf(stderr, "cannot initialise message storage\n");
+    if (db_init(data_file) != 0) {
+        fprintf(stderr, "cannot initialise message storage '%s': %s\n", data_file, strerror(errno));
         return 1;
     }
     session_table_init();
