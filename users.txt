@@ -1,0 +1,14 @@
+# Valid users allowed to log in (one per line)
+alice
+bob
+carol
+dave
+eve
+frank
+grace
+heidi
+ivan
+judy
+jofrey
+ibrahim
+krishang
