@@ -233,9 +233,13 @@ check "home is private (mode 700)"              allow "[ \"\$(stat -c %a ~)\" = 
 # that is world-readable, so a 'limited' account is only as private as the files.)
 echo
 echo "World-readable secrets visible to $CSIT_USER (should be empty):"
-mapfile -t exposed < <(find /opt /srv /var/www -xdev -type f \
+mapfile -t candidates < <(find /opt /srv /var/www -xdev -type f \
         \( -name '.env' -o -name '.env.*' -o -name '*.key' -o -name '*.pem' -o -name 'id_rsa' -o -name 'id_ed25519' \) \
-        ! -name '*.example' ! -name '*.pub' -perm -o+r 2>/dev/null | head -50)
+        ! -name '*.example' ! -name '*.pub' -perm -o+r 2>/dev/null | head -200)
+exposed=()                                   # keep only files this user can really read
+for f in "${candidates[@]}"; do
+    sudo -H -u "$CSIT_USER" test -r "$f" 2>/dev/null && exposed+=("$f")
+done
 if ((${#exposed[@]})); then
     printf '  %s\n' "${exposed[@]}"
     if [[ "${HARDEN_SECRETS:-0}" == 1 ]]; then
