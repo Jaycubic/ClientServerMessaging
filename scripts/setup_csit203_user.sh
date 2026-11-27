@@ -29,6 +29,9 @@
 #   CSIT_USER          account name              (default: CSIT203)
 #   CSIT203_PASSWORD   account password          (prompted if unset)
 #   REPO_URL           repository to clone       (default: the team repo)
+#   KEEP_PROJECT_DIR   optional path (e.g. /opt/View/ClientServerMessaging) the account
+#                      may enter and edit; its siblings stay hidden, its parent is
+#                      traverse-only (cannot be listed)
 #   HARDEN_SECRETS=1   also chmod o-rwx on world-readable .env / *.key / id_*
 #                      files found under /opt, /srv, /var/www (see step 5)
 set -euo pipefail
@@ -130,6 +133,21 @@ if command -v setfacl >/dev/null 2>&1; then
         setfacl -m "u:${CSIT_USER}:--x" "$d" 2>/dev/null || true
         setfacl -d -m "u:${CSIT_USER}:---" "$d" 2>/dev/null || true
     done
+    if [[ -n "${KEEP_PROJECT_DIR:-}" ]]; then
+        keep="${KEEP_PROJECT_DIR%/}"; parent="$(dirname "$keep")"
+        if [[ -d "$keep" ]]; then
+            setfacl -m "u:${CSIT_USER}:--x" "$parent"                  # traverse only
+            for e in "$parent"/* "$parent"/.[!.]*; do                  # hide every sibling
+                [[ -e "$e" && "$e" != "$keep" ]] && setfacl -m "u:${CSIT_USER}:---" "$e" 2>/dev/null
+            done
+            setfacl -d -m "u:${CSIT_USER}:---" "$parent"               # new siblings start hidden
+            setfacl -R -m "u:${CSIT_USER}:rwx" "$keep"
+            find "$keep" -type d -exec setfacl -d -m "u:${CSIT_USER}:rwx" {} +
+            echo "  $CSIT_USER may enter and edit only: $keep"
+        else
+            warn "KEEP_PROJECT_DIR '$keep' does not exist; nothing granted"
+        fi
+    fi
     setfacl -m "u:${CSIT_USER}:--x" /home 2>/dev/null || true   # cannot list other users' names
     echo "  hidden from $CSIT_USER: $hidden folder(s) under /opt /srv /mnt /media /var/www /home"
 else
